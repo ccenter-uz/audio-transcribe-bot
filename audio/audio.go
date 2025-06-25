@@ -28,18 +28,19 @@ type AudioResponse struct {
 	Count         int            `json:"count"`
 }
 
-var userChunkIDs = make(map[int64]int)
-var userStates = make(map[int64]string)
-var userAudioMsgIDs = make(map[int64]int)
-var userButtonMsgIDs = make(map[int64]int)
-var promptMessages = make(map[int64]int)
-var confirmMsgIDs = make(map[int64]int)
+var (
+	userChunkIDs      = make(map[int64]int)
+	userStates        = make(map[int64]string)
+	userAudioMsgIDs   = make(map[int64]int)
+	userButtonMsgIDs  = make(map[int64]int)
+	promptMessages    = make(map[int64]int)
+)
 
 func HandleCallback(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
 	chatID := cq.Message.Chat.ID
 	data := cq.Data
 
-	bot.Request(tgbotapi.NewCallback(cq.ID, ""))
+	bot.Request(tgbotapi.NewCallback(cq.ID, "")) // Close loading
 
 	switch data {
 	case "start_transcribe", "next_audio":
@@ -48,16 +49,16 @@ func HandleCallback(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
 		} else {
 			bot.Send(tgbotapi.NewMessage(chatID, "❌ Token topilmadi. /start buyrug‘i orqali qayta login qiling."))
 		}
+
 	case "valid", "invalid":
 		userStates[chatID] = data
 		msg := tgbotapi.NewMessage(chatID, "✏️ Matnni kiriting:")
 		sentMsg, _ := bot.Send(msg)
 		promptMessages[chatID] = sentMsg.MessageID
-
 	}
 }
 
-func HandleText(bot *tgbotapi.BotAPI, chatID int64, msgText string) {
+func HandleText(bot *tgbotapi.BotAPI, chatID int64, msgText string, msgID int) {
 	state, ok := userStates[chatID]
 	if !ok {
 		return
@@ -70,6 +71,7 @@ func HandleText(bot *tgbotapi.BotAPI, chatID int64, msgText string) {
 		return
 	}
 
+	// Build payload
 	payload := map[string]interface{}{
 		"entire_audio_invalid": state == "invalid",
 	}
@@ -94,41 +96,31 @@ func HandleText(bot *tgbotapi.BotAPI, chatID int64, msgText string) {
 	}
 	defer resp.Body.Close()
 
+	// Show next button
 	nextBtn := tgbotapi.NewMessage(chatID, "✅ Saqlandi. Davom ettirasizmi?")
 	nextBtn.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("➡️ Next Audio", "next_audio"),
 		),
 	)
-	msg, _ := bot.Send(nextBtn)
-	confirmMsgIDs[chatID] = msg.MessageID
+	bot.Send(nextBtn)
 
+	// 🧹 Delete previous messages
 	if msgID, ok := userAudioMsgIDs[chatID]; ok {
-		bot.Request(tgbotapi.DeleteMessageConfig{
-			ChatID:    chatID,
-			MessageID: msgID,
-		})
+		bot.Request(tgbotapi.NewDeleteMessage(chatID, msgID))
 		delete(userAudioMsgIDs, chatID)
 	}
-
 	if msgID, ok := userButtonMsgIDs[chatID]; ok {
-		bot.Request(tgbotapi.DeleteMessageConfig{
-			ChatID:    chatID,
-			MessageID: msgID,
-		})
+		bot.Request(tgbotapi.NewDeleteMessage(chatID, msgID))
 		delete(userButtonMsgIDs, chatID)
 	}
-
 	if msgID, ok := promptMessages[chatID]; ok {
-		del := tgbotapi.NewDeleteMessage(chatID, msgID)
-		bot.Send(del)
+		bot.Request(tgbotapi.NewDeleteMessage(chatID, msgID))
 		delete(promptMessages, chatID)
 	}
 
-	if msgID, ok := confirmMsgIDs[chatID]; ok {
-		bot.Send(tgbotapi.NewDeleteMessage(chatID, msgID))
-		delete(confirmMsgIDs, chatID)
-	}
+	// 🧹 Delete user's text message (e.g., transcription)
+	bot.Request(tgbotapi.NewDeleteMessage(chatID, msgID))
 }
 
 func SendNextAudio(bot *tgbotapi.BotAPI, chatID int64, info auth.UserAuthInfo) {
@@ -151,7 +143,7 @@ func SendNextAudio(bot *tgbotapi.BotAPI, chatID int64, info auth.UserAuthInfo) {
 
 	body, _ := io.ReadAll(resp.Body)
 	var result AudioResponse
-	json.Unmarshal(body, &result)
+	_ = json.Unmarshal(body, &result)
 
 	for _, seg := range result.AudioSegments {
 		if seg.Status == "ready" {

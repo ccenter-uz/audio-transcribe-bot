@@ -59,7 +59,7 @@ func main() {
 			continue
 		}
 
-		audio.HandleText(bot, chatID, msgText)
+		audio.HandleText(bot, update.Message.Chat.ID, update.Message.Text, update.Message.MessageID)
 	}
 }
 
