@@ -32,6 +32,8 @@ func main() {
 
 	updates := bot.GetUpdatesChan(u)
 
+	// go handlers.YTLinks(bot, updates)
+
 	for update := range updates {
 		if update.CallbackQuery != nil {
 			audio.HandleCallback(bot, update.CallbackQuery)

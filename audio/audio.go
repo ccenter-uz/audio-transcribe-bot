@@ -28,12 +28,28 @@ type AudioResponse struct {
 	Count         int            `json:"count"`
 }
 
+type Transcript struct {
+	Id               int     `json:"id"`
+	AudioId          int     `json:"audio_id"`
+	AudioName        string  `json:"audio_name"`
+	SegmentId        int     `json:"segment_id"`
+	UserId           *string `json:"user_id"`
+	Username         *string `json:"username"`
+	AIText           *string `json:"ai_text"`
+	TranscriptText   *string `json:"transcribe_text"`
+	ReportText       *string `json:"report_text"`
+	TranscriptOption *string `json:"transcribe_option"`
+	Status           string  `json:"status"`
+	Emotion          *string `json:"emotion"`
+	CreatedAt        string  `json:"created_at"`
+}
+
 var (
-	userChunkIDs      = make(map[int64]int)
-	userStates        = make(map[int64]string)
-	userAudioMsgIDs   = make(map[int64]int)
-	userButtonMsgIDs  = make(map[int64]int)
-	promptMessages    = make(map[int64]int)
+	userChunkIDs     = make(map[int64]int)
+	userStates       = make(map[int64]string)
+	userAudioMsgIDs  = make(map[int64]int)
+	userButtonMsgIDs = make(map[int64]int)
+	promptMessages   = make(map[int64]int)
 )
 
 func HandleCallback(bot *tgbotapi.BotAPI, cq *tgbotapi.CallbackQuery) {
@@ -152,6 +168,29 @@ func SendNextAudio(bot *tgbotapi.BotAPI, chatID int64, info auth.UserAuthInfo) {
 				slog.Error("Error downloading or converting audio", "error", err)
 			}
 			userChunkIDs[chatID] = seg.ID
+
+			url := fmt.Sprintf("https://transcriber-bk.ccenter.uz/api/v1/transcript/%d", seg.ID)
+			req, _ := http.NewRequest("GET", url, nil)
+			req.Header.Set("Authorization", "Bearer "+info.Token)
+			req.Header.Set("accept", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				bot.Send(tgbotapi.NewMessage(chatID, "❌ HTTP error: "+err.Error()))
+				return
+			}
+			if resp.StatusCode == 401 || resp.StatusCode == 403 {
+				auth.RemoveAuth(chatID)
+				bot.Send(tgbotapi.NewMessage(chatID, "🔁 Token topilmadi. /start buyrug‘i orqali qayta login qiling."))
+				return
+			}
+			defer resp.Body.Close()
+
+			body, _ := io.ReadAll(resp.Body)
+			var result Transcript
+			_ = json.Unmarshal(body, &result)
+
+			bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Transcription:\n %s", *result.TranscriptOption)))
 			return
 		}
 	}
